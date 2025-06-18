@@ -1,28 +1,36 @@
 #include <AccelStepper.h>
 
-#define stepper_azimuth_EN 19
-#define stepper_azimuth_DIR 17
-#define stepper_azimuth_STEP 18
-#define stepper_azimuth_Home A0
+#define stepper_azimuth_EN 3
+#define stepper_azimuth_DIR 5
+#define stepper_azimuth_STEP 4
+#define stepper_azimuth_Home A4
 
-#define stepper_azimuth_speed 12000
-#define stepper_azimuth_acc 2000
+#define stepper_azimuth_speed 2000
+#define stepper_azimuth_acc 500
 const long stepper_azimuth_fullRotation = 240000;
 
-#define stepper_altitude_EN A2
-#define stepper_altitude_DIR 2
-#define stepper_altitude_STEP 0
-#define stepper_altitude_Home A1
+#define stepper_altitude_EN A5
+#define stepper_altitude_DIR 1
+#define stepper_altitude_STEP 2
+#define stepper_altitude_Home A6
 
-#define stepper_altitude_speed 60000
-#define stepper_altitude_acc 20000
-const long stepper_altitude_fullRotation = 240000;
+#define stepper_altitude_speed 20000
+#define stepper_altitude_acc 5000
+const long stepper_altitude_fullRotation = 320000;
 
 // Define some steppers and the pins the will use
 AccelStepper stepper_azimuth_bottom(AccelStepper::DRIVER, stepper_azimuth_STEP, stepper_azimuth_DIR);
 AccelStepper stepper_altitude_top(AccelStepper::DRIVER, stepper_altitude_STEP, stepper_altitude_DIR);
 
 bool hasHomedToday = false;
+
+bool azHomed = false;
+bool altHomed = false;
+
+unsigned long homingPrintTimer = 0;
+
+unsigned long homingStartTime = 0;
+const unsigned long HOMING_TIMEOUT_MS = 540000; // 3 minutes
 
 void setupSteppers() {
   pinMode(stepper_azimuth_EN, OUTPUT);
@@ -31,19 +39,113 @@ void setupSteppers() {
   pinMode(stepper_altitude_EN, OUTPUT);
   digitalWrite(stepper_altitude_EN, HIGH);
 
-  stepper_azimuth_bottom.setMaxSpeed(12000);
-  stepper_azimuth_bottom.setAcceleration(2000);
-  stepper_azimuth_bottom.moveTo(3200000);  // 32000 = 1 turn
+  stepper_azimuth_bottom.setMaxSpeed(stepper_azimuth_speed);
+  stepper_azimuth_bottom.setAcceleration(stepper_azimuth_acc);
+  stepper_azimuth_bottom.moveTo(stepper_azimuth_fullRotation);  // 32000 = 1 turn
 
-  stepper_altitude_top.setMaxSpeed(60000);
-  stepper_altitude_top.setAcceleration(20000);
-  stepper_altitude_top.moveTo(3200000);  // 32000 = 1 turn
+  stepper_altitude_top.setMaxSpeed(stepper_altitude_speed);
+  stepper_altitude_top.setAcceleration(stepper_altitude_acc);
+  stepper_altitude_top.moveTo(stepper_altitude_fullRotation);  // 32000 = 1 turn
 }
 
 void homeSteppers() {
-  findHomeAzimuth();
-  findHomeAltitude();
+  isHoming = true;
+  azHomed = false;
+  altHomed = false;
+  homingPrintTimer = 0;
+  homingStartTime = millis();  // ✅ Start timeout clock
+
+  Serial.println("🔄 Homing sequence started...");
+
+  if (analogRead(stepper_azimuth_Home) >= 700) {
+    stepper_azimuth_bottom.setCurrentPosition(0);
+    azHomed = true;
+    Serial.println("✅ Azimuth already at home.");
+  } else {
+    stepper_azimuth_bottom.setCurrentPosition(0);
+    stepper_azimuth_bottom.move(stepper_azimuth_fullRotation);
+  }
+
+  if (analogRead(stepper_altitude_Home) >= 700) {
+    stepper_altitude_top.setCurrentPosition(0);
+    altHomed = true;
+    Serial.println("✅ Altitude already at home.");
+  } else {
+    stepper_altitude_top.setCurrentPosition(0);
+    stepper_altitude_top.move(stepper_altitude_fullRotation);
+  }
 }
+
+
+
+void updateHoming() {
+  if (!isHoming) return;
+
+  unsigned long now = millis();
+
+  if (!azHomed) {
+    stepper_azimuth_bottom.run();
+    if (analogRead(stepper_azimuth_Home) >= 700) {
+      stepper_azimuth_bottom.stop();
+      stepper_azimuth_bottom.setCurrentPosition(0);
+      azHomed = true;
+      Serial.println("✅ Azimuth homed.");
+    } else if (now - homingPrintTimer >= 1000) {
+      Serial.println("HOMING AZIMUTH...");
+      homingPrintTimer = now;
+    }
+  }
+
+  if (!altHomed) {
+    stepper_altitude_top.run();
+    if (analogRead(stepper_altitude_Home) >= 700) {
+      stepper_altitude_top.stop();
+      stepper_altitude_top.setCurrentPosition(0);
+      altHomed = true;
+      Serial.println("✅ Altitude homed.");
+    } else if (now - homingPrintTimer >= 1000) {
+      Serial.println("HOMING ALTITUDE...");
+      homingPrintTimer = now;
+    }
+  }
+
+  // Timeout check
+  if (!azHomed || !altHomed) {
+    if (millis() - homingStartTime >= HOMING_TIMEOUT_MS) {
+      Serial.println("⚠️ Homing timeout reached. Forcing current position as 'home'.");
+
+      if (!azHomed) {
+        stepper_azimuth_bottom.stop();
+        stepper_azimuth_bottom.setCurrentPosition(0);
+        azHomed = true;
+        Serial.println("⚠️ Azimuth forced home.");
+      }
+
+      if (!altHomed) {
+        stepper_altitude_top.stop();
+        stepper_altitude_top.setCurrentPosition(0);
+        altHomed = true;
+        Serial.println("⚠️ Altitude forced home.");
+      }
+    }
+  }
+
+  if (azHomed && altHomed) {
+    isHoming = false;
+    Serial.println("🏁 Homing complete.");
+
+    // Immediately move to moon position
+    DateTime now = rtc.now();
+    float az, alt;
+    readMoonDataAtTime(now, az, alt);
+    moveToMoonPosition(az, alt);
+
+    lastIndexRead = -1; // Ensure moon data is re-evaluated
+  }
+}
+
+
+
 
 unsigned long previousMillis = 0;
 unsigned long previousMillisAzimuth = 0;
@@ -107,41 +209,47 @@ void moveToMoonPosition(float azimuthDeg, float altitudeDeg) {
 }
 
 void runSteppersWithStatus() {
+  static unsigned long lastStatusPrint = 0;
+  const unsigned long statusInterval = 1000;
+
   bool azMoving = stepper_azimuth_bottom.distanceToGo() != 0;
   bool altMoving = stepper_altitude_top.distanceToGo() != 0;
 
-  if (azMoving) {
-    Serial.print("AZIMUTH moving... current: ");
-    Serial.print(stepper_azimuth_bottom.currentPosition());
-    Serial.print(" / target: ");
-    Serial.println(stepper_azimuth_bottom.targetPosition());
+  unsigned long now = millis();
+  if (now - lastStatusPrint >= statusInterval) {
+    lastStatusPrint = now;
+
+    if (azMoving) {
+      Serial.print("AZIMUTH moving... current: ");
+      Serial.print(stepper_azimuth_bottom.currentPosition());
+      Serial.print(" / target: ");
+      Serial.println(stepper_azimuth_bottom.targetPosition());
+    }
+
+    if (altMoving) {
+      Serial.print("ALTITUDE moving... current: ");
+      Serial.print(stepper_altitude_top.currentPosition());
+      Serial.print(" / target: ");
+      Serial.println(stepper_altitude_top.targetPosition());
+    }
   }
 
-  if (altMoving) {
-    Serial.print("ALTITUDE moving... current: ");
-    Serial.print(stepper_altitude_top.currentPosition());
-    Serial.print(" / target: ");
-    Serial.println(stepper_altitude_top.targetPosition());
-  }
-
-  // Keep moving the motors
   stepper_azimuth_bottom.run();
   stepper_altitude_top.run();
 }
 
+
 void checkDailyHoming(DateTime now) {
-  // Trigger homing at 08:00
   if (now.hour() == 8 && now.minute() == 0) {
-    if (!hasHomedToday) {
-      Serial.println("🔄 Performing daily homing...");
-      homeSteppers();
+    if (!hasHomedToday && !isHoming) {
+      homeSteppers();  // Triggers non-blocking homing
       hasHomedToday = true;
     }
   } else {
-    // Reset flag after 08:00 so we can trigger again the next day
     hasHomedToday = false;
   }
 }
+
 
 unsigned long lastLoopCheck= 0;
 void homeEveryDay() 

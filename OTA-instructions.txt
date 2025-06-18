@@ -1,0 +1,7 @@
+go here and open cmd C:\Users\cverc\AppData\Local\arduino\sketches\854D73CBDF8D5DA753F0D7CF84BCDEE3
+
+adafruit-nrfutil dfu genpkg --dev-type 0x0052 --application Blink.ino.hex --application-version 1 --sd-req 0x00 Blink.zip
+
+C:\Users\cverc\AppData\Local\arduino\sketches\A648D43725CE156FAA476C0A20B7D332
+
+nrfutil dfu ble -pkg firmware.zip -n DfuTarg
