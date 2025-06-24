@@ -27,52 +27,56 @@ extern const long stepper_azimuth_fullRotation;
 
 int lastIndexRead = -1;
 
-bool isHoming = false;
-
-
 void readMoonData() {
-  static unsigned long lastCheck = 0;
-  static unsigned long lastTimePrint = 0;
+  static unsigned long lastCheckMillis = 0;
+  static DateTime lastTime;
+  static int lastSecond = -1;
 
   unsigned long nowMillis = millis();
+  unsigned long checkInterval = 250; // check RTC only 4× per second (lightweight)
+
+  if (nowMillis - lastCheckMillis < checkInterval)
+    return;
+
+  lastCheckMillis = nowMillis;
+
   DateTime now = rtc.now();
 
-  // Print every second if homing, every 20 seconds if NOT homing
-  unsigned long interval = isHoming ? 1000 : 20000;
+  // Avoid unnecessary processing if time hasn't changed
+  if (now.second() == lastSecond) return;
+  lastSecond = now.second();
 
-  if (nowMillis - lastTimePrint >= interval) {
-    lastTimePrint = nowMillis;
+  // Print timestamp every 1s while homing, every 20s otherwise
+  static unsigned long lastPrint = 0;
+  unsigned long printInterval = isHoming ? 1000 : 20000;
 
+  if (nowMillis - lastPrint >= printInterval) {
+    lastPrint = nowMillis;
     Serial.print("⏰ Time: ");
     Serial.println(now.timestamp());
   }
 
-  // Skip moon calculations if still homing
-  if(isHoming) {
-    return;
-  }
+  if (isHoming) return;
 
-  // Normal lunar position calculations
-  if (nowMillis - lastCheck >= 1000) {
-    lastCheck = nowMillis;
+  int index = getMoonDataIndex(now);
 
-    int index = getMoonDataIndex(now);
-    if (index != lastIndexRead && now.minute() % INTERVAL_MINUTES == 0 && now.second() == 0) {
-      lastIndexRead = index;
+  // Only load moon data exactly on the 5-minute mark, once
+  if (index != lastIndexRead && now.minute() % INTERVAL_MINUTES == 0 && now.second() == 0) {
+    lastIndexRead = index;
 
-      float az, alt;
-      readMoonDataAtTime(now, az, alt);
+    float az, alt;
+    readMoonDataAtTime(now, az, alt);
 
-      Serial.println("Reading moon data! ");
-      Serial.print("Azimuth: ");
-      Serial.print(az);
-      Serial.print(" | Altitude: ");
-      Serial.println(alt);
+    Serial.println("🌙 Reading moon data...");
+    Serial.print("Azimuth: ");
+    Serial.print(az);
+    Serial.print(" | Altitude: ");
+    Serial.println(alt);
 
-      moveToMoonPosition(az, alt);
-    }
+    moveToMoonPosition(az, alt);
   }
 }
+
 
 
 
@@ -89,20 +93,31 @@ void readMoonDataAtTime(DateTime now, float &azimuth, float &altitude) {
 
   azimuth = pgm_read_float_near(&moonAzimuth[index]);
   altitude = pgm_read_float_near(&moonAltitude[index]);
+
+  Serial.print("DEBUG: Index = ");
+  Serial.print(index);
+  Serial.print(" | Azimuth read = ");
+  Serial.print(azimuth);
+  Serial.print(" | Altitude read = ");
+  Serial.println(altitude);
 }
+
 
 long mapAzimuthToSteps(float azimuthDeg) {
-  // Add 90° offset for mechanical alignment
-  float adjustedAz = fmod((azimuthDeg + AZIMUTH_OFFSET), 360.0);
-  return (long)(adjustedAz * (stepper_azimuth_fullRotation / 360.0));
+  float adjustedAz = fmod((azimuthDeg + AZIMUTH_OFFSET + 360.0), 360.0);
+  return lroundf(adjustedAz * (stepper_azimuth_fullRotation / 360.0f));
 }
 
-//If your physical mount maps altitude 0° to 0 steps, and increases as you go up:
 long mapAltitudeToSteps(float altitudeDeg) {
-  float altitudeRange = ALTITUDE_DEG_AT_FULL_STEPS - ALTITUDE_DEG_AT_ZERO_STEPS;
-  float shifted = altitudeDeg - ALTITUDE_DEG_AT_ZERO_STEPS;
-  return (long)(shifted * (stepper_altitude_fullRotation / altitudeRange));
+  float range = ALTITUDE_DEG_AT_FULL_STEPS - ALTITUDE_DEG_AT_ZERO_STEPS; // 180
+  float shifted = ALTITUDE_DEG_AT_FULL_STEPS - altitudeDeg;  // Invert altitude mapping here
+  return lroundf(shifted * (stepper_altitude_fullRotation / range));
 }
+
+
+
+
+
 
 
 

@@ -5,7 +5,7 @@
 #define stepper_azimuth_STEP 4
 #define stepper_azimuth_Home A4
 
-#define stepper_azimuth_speed 4000
+#define stepper_azimuth_speed 3000
 #define stepper_azimuth_acc 500
 const long stepper_azimuth_fullRotation = 240000;
 
@@ -14,7 +14,7 @@ const long stepper_azimuth_fullRotation = 240000;
 #define stepper_altitude_STEP 2
 #define stepper_altitude_Home A6
 
-#define stepper_altitude_speed 40000
+#define stepper_altitude_speed 3000
 #define stepper_altitude_acc 500
 const long stepper_altitude_fullRotation = 320000;
 
@@ -82,37 +82,44 @@ void updateHoming() {
   if (!isHoming) return;
 
   unsigned long now = millis();
+  bool stepTaken = false;
 
+  // Always run both motors regardless of state
   if (!azHomed) {
     stepper_azimuth_bottom.run();
+    stepTaken = true;
+
     if (analogRead(stepper_azimuth_Home) >= 700) {
       stepper_azimuth_bottom.stop();
       stepper_azimuth_bottom.setCurrentPosition(0);
       azHomed = true;
       Serial.println("✅ Azimuth homed.");
-    } else if (now - homingPrintTimer >= 1000) {
-      Serial.println("HOMING AZIMUTH...");
-      homingPrintTimer = now;
     }
   }
 
   if (!altHomed) {
     stepper_altitude_top.run();
+    stepTaken = true;
+
     if (analogRead(stepper_altitude_Home) >= 700) {
       stepper_altitude_top.stop();
       stepper_altitude_top.setCurrentPosition(0);
       altHomed = true;
       Serial.println("✅ Altitude homed.");
-    } else if (now - homingPrintTimer >= 1000) {
-      Serial.println("HOMING ALTITUDE...");
-      homingPrintTimer = now;
     }
   }
 
-  // Timeout check
+  // Print status once per second
+  if (now - homingPrintTimer >= 1000) {
+    homingPrintTimer = now;
+    if (!azHomed) Serial.println("HOMING AZIMUTH...");
+    if (!altHomed) Serial.println("HOMING ALTITUDE...");
+  }
+
+  // Timeout logic
   if (!azHomed || !altHomed) {
-    if (millis() - homingStartTime >= HOMING_TIMEOUT_MS) {
-      Serial.println("⚠️ Homing timeout reached. Forcing current position as 'home'.");
+    if (now - homingStartTime >= HOMING_TIMEOUT_MS) {
+      Serial.println("⚠️ Homing timeout reached. Forcing home...");
 
       if (!azHomed) {
         stepper_azimuth_bottom.stop();
@@ -134,15 +141,14 @@ void updateHoming() {
     isHoming = false;
     Serial.println("🏁 Homing complete.");
 
-    // Immediately move to moon position
     DateTime now = rtc.now();
     float az, alt;
     readMoonDataAtTime(now, az, alt);
     moveToMoonPosition(az, alt);
-
-    lastIndexRead = -1; // Ensure moon data is re-evaluated
+    lastIndexRead = -1;
   }
 }
+
 
 
 
@@ -199,14 +205,17 @@ void moveToMoonPosition(float azimuthDeg, float altitudeDeg) {
   long azSteps = mapAzimuthToSteps(azimuthDeg);
   long altSteps = mapAltitudeToSteps(altitudeDeg);
 
-  stepper_azimuth_bottom.moveTo(azSteps);
-  stepper_altitude_top.moveTo(altSteps);
+  if (stepper_azimuth_bottom.targetPosition() != azSteps)
+    stepper_azimuth_bottom.moveTo(azSteps);
+  if (stepper_altitude_top.targetPosition() != altSteps)
+    stepper_altitude_top.moveTo(altSteps);
 
   Serial.print("New Target → Azimuth: ");
   Serial.print(azSteps);
   Serial.print(" | Altitude: ");
   Serial.println(altSteps);
 }
+
 
 void runSteppersWithStatus() {
   static unsigned long lastStatusPrint = 0;

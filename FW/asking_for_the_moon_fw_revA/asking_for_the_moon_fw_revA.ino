@@ -1,6 +1,7 @@
 #include <RTClib.h>
 #include <Wire.h>
 RTC_DS3231 rtc;
+bool isHoming = false;
 
 void setup() 
 {
@@ -14,13 +15,18 @@ void setup()
 }
 
 void loop() {
-
+  // Update moon position and check if we need to move the steppers
   readMoonData();
 
-  runSteppersWithStatus();  // Main tracking movement
+  // If currently homing, update homing logic instead of running steppers
+  if (isHoming) {
+    updateHoming();
+  } else {
+    runSteppersWithStatus();  // Perform normal lunar tracking
+  }
 
-  updateHoming();           // Step-by-step homing
-  
-  homeEveryDay();           // Check daily homing trigger
+  // Perform daily homing check at specific time
+//  homeEveryDay();
 }
+
 
