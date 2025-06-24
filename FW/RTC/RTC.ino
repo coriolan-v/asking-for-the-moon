@@ -5,12 +5,16 @@ RTC_DS3231 rtc;
 
 void setup() {
     Serial.begin(9600);
+    delay(3000);
     Wire.begin();
+     
 
     if (!rtc.begin()) {
         Serial.println("Couldn't find RTC");
         while (1);
     }
+
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Set to compile time
 
     if (rtc.lostPower()) {
         Serial.println("RTC lost power, setting default time...");

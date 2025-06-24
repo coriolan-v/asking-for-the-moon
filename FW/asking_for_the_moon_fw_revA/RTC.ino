@@ -1,8 +1,3 @@
-
-
-
-
-
 void setupRTC(){
   Wire.begin();
 

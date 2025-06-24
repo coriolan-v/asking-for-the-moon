@@ -5,7 +5,7 @@
 #define stepper_azimuth_STEP 4
 #define stepper_azimuth_Home A4
 
-#define stepper_azimuth_speed 2000
+#define stepper_azimuth_speed 4000
 #define stepper_azimuth_acc 500
 const long stepper_azimuth_fullRotation = 240000;
 
@@ -14,8 +14,8 @@ const long stepper_azimuth_fullRotation = 240000;
 #define stepper_altitude_STEP 2
 #define stepper_altitude_Home A6
 
-#define stepper_altitude_speed 20000
-#define stepper_altitude_acc 5000
+#define stepper_altitude_speed 40000
+#define stepper_altitude_acc 500
 const long stepper_altitude_fullRotation = 320000;
 
 // Define some steppers and the pins the will use

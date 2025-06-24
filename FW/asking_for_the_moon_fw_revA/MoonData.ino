@@ -3,13 +3,18 @@
 #include "moon_data.h"
 
 // Auto-generated moon azimuth and altitude arrays for Arduino
+#define AZIMUTH_OFFSET -279
+
+const float ALTITUDE_DEG_AT_ZERO_STEPS = -90.0;   // arm pointing down
+const float ALTITUDE_DEG_AT_FULL_STEPS = +90.0;   // arm pointing up
+
 
 #define INTERVAL_MINUTES 5
 
 // Hardcoded start time (when first moon data point occurs)
 const int startYear = 2025;
 const int startMonth = 6;
-const int startDay = 12;
+const int startDay = 24;
 const int startHour = 0;
 const int startMinute = 0;
 
@@ -26,27 +31,32 @@ bool isHoming = false;
 
 
 void readMoonData() {
-
-  if(isHoming) return;
-  
   static unsigned long lastCheck = 0;
   static unsigned long lastTimePrint = 0;
-  unsigned long nowMillis = millis();
 
+  unsigned long nowMillis = millis();
+  DateTime now = rtc.now();
+
+  // Print every second if homing, every 20 seconds if NOT homing
+  unsigned long interval = isHoming ? 1000 : 20000;
+
+  if (nowMillis - lastTimePrint >= interval) {
+    lastTimePrint = nowMillis;
+
+    Serial.print("⏰ Time: ");
+    Serial.println(now.timestamp());
+  }
+
+  // Skip moon calculations if still homing
+  if(isHoming) {
+    return;
+  }
+
+  // Normal lunar position calculations
   if (nowMillis - lastCheck >= 1000) {
     lastCheck = nowMillis;
 
-    DateTime now = rtc.now();
-
-    // Print time every 20 seconds
-    if (nowMillis - lastTimePrint >= 20000) {
-      lastTimePrint = nowMillis;
-      Serial.print("⏰ Time: ");
-      Serial.println(now.timestamp());
-    }
-  
     int index = getMoonDataIndex(now);
-
     if (index != lastIndexRead && now.minute() % INTERVAL_MINUTES == 0 && now.second() == 0) {
       lastIndexRead = index;
 
@@ -60,10 +70,11 @@ void readMoonData() {
       Serial.println(alt);
 
       moveToMoonPosition(az, alt);
-
     }
   }
 }
+
+
 
 int getMoonDataIndex(DateTime now) {
   DateTime start(startYear, startMonth, startDay, startHour, startMinute, 0);
@@ -82,16 +93,17 @@ void readMoonDataAtTime(DateTime now, float &azimuth, float &altitude) {
 
 long mapAzimuthToSteps(float azimuthDeg) {
   // Add 90° offset for mechanical alignment
-  float adjustedAz = fmod((azimuthDeg + 90.0), 360.0);
+  float adjustedAz = fmod((azimuthDeg + AZIMUTH_OFFSET), 360.0);
   return (long)(adjustedAz * (stepper_azimuth_fullRotation / 360.0));
 }
 
 //If your physical mount maps altitude 0° to 0 steps, and increases as you go up:
 long mapAltitudeToSteps(float altitudeDeg) {
-  // Shift moon altitude by +90 so that -90 = 0 steps, 0 = mid, +90 = max
-  float shifted = altitudeDeg + 90.0;
-  return (long)(shifted * (stepper_altitude_fullRotation / 360.0));
+  float altitudeRange = ALTITUDE_DEG_AT_FULL_STEPS - ALTITUDE_DEG_AT_ZERO_STEPS;
+  float shifted = altitudeDeg - ALTITUDE_DEG_AT_ZERO_STEPS;
+  return (long)(shifted * (stepper_altitude_fullRotation / altitudeRange));
 }
+
 
 
 //If instead 0° is horizontal and increases toward up, and you want 0° to map to 90° real altitude, then flip like:
